@@ -1,0 +1,44 @@
+server:
+  host: 0.0.0.0
+  port: 8787
+db_path: data/chat.db
+scheduler:
+  quiet_hours:
+  - 01:00
+  - 07:30
+  echo_mode: false
+  real_platforms:
+  - DeepSeek
+  - 智谱清言
+  - 千问
+  - 豆包
+  - 元宝
+  echo:
+    min_delay: 1.0
+    max_delay: 3.0
+members:
+- name: 豆包
+  risk: high
+  daily_cap: 20
+  min_delay: 6.0
+  max_delay: 10.0
+- name: DeepSeek
+  risk: low
+  daily_cap: 30
+  min_delay: 6.0
+  max_delay: 10.0
+- name: 千问
+  risk: medium
+  daily_cap: 25
+  min_delay: 6.0
+  max_delay: 10.0
+- name: 智谱清言
+  risk: low
+  daily_cap: 30
+  min_delay: 6.0
+  max_delay: 10.0
+- name: 元宝
+  risk: high
+  daily_cap: 20
+  min_delay: 6.0
+  max_delay: 10.0

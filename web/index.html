@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#2e2e2e">
+  <title>AI 群聊</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <div id="sidebarMask" class="hidden"></div>
+    <aside id="sidebar">
+      <div class="brand">AI 群聊 <span class="badge" id="modeBadge">M1</span></div>
+      <ul id="memberList"></ul>
+      <div class="sidebar-nav">
+        <div class="nav-item" id="exportBtn" title="导出当前视图为 Markdown">导出记录</div>
+        <div class="nav-item" id="settingsBtn">设置</div>
+      </div>
+      <div class="sidebar-foot">
+        <div class="foot-toggle" id="queueToggle">防风控状态 ▸</div>
+        <div id="queuePanel" class="hidden"></div>
+        <div id="riskFoot">本地运行 · 未连接任何平台</div>
+      </div>
+    </aside>
+
+    <main id="main">
+      <header id="convHeader">
+        <button id="menuBtn" class="hbtn menu-btn">☰</button>
+        <span id="convTitle"></span>
+        <span id="convHint"></span>
+        <div id="convTabs" class="conv-tabs hidden">
+          <button data-t="private">私聊</button>
+          <button data-t="assistant">群聊记录</button>
+        </div>
+      </header>
+
+      <div id="messages"></div>
+
+      <div id="composer">
+        <div id="quoteBar" class="hidden">
+          <span id="quoteText"></span>
+          <span id="quoteRemove">×</span>
+        </div>
+        <div id="mentionPopup" class="hidden"></div>
+        <textarea id="input" rows="1"
+          placeholder="输入消息，@ 可选择助手（支持多选）；不 @ 或 @所有人 → 全员回复。Enter 发送，Shift+Enter 换行"></textarea>
+        <button id="sendBtn">发送</button>
+      </div>
+    </main>
+  </div>
+
+  <div id="settingsModal" class="modal hidden">
+    <div class="modal-box">
+      <div class="modal-head">设置 <span class="modal-close" id="settingsClose">×</span></div>
+      <div class="modal-body">
+        <div class="set-row">
+          <label>安静时段（该时段暂停向平台发送）</label>
+          <input type="time" id="setQuietStart"> ~ <input type="time" id="setQuietEnd">
+        </div>
+        <table class="set-table">
+          <thead>
+            <tr><th>助手</th><th>最短间隔(秒)</th><th>最长间隔(秒)</th><th>日限额(条)</th></tr>
+          </thead>
+          <tbody id="setMemberRows"></tbody>
+        </table>
+        <div class="set-tip">保存后间隔/限额/安静时段即时生效；注意：保存会重写 config.yaml（注释不保留）</div>
+      </div>
+      <div class="modal-foot"><button id="settingsSave">保存</button></div>
+    </div>
+  </div>
+
+  <script src="vendor/marked.min.js"></script>
+  <script src="vendor/purify.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
