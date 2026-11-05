@@ -6,6 +6,7 @@
 - 回复轮询只在"新块出现前"扫描平台级风控文案，避免把聊天内容误判
 """
 import asyncio
+import re
 import time
 
 from .. import browser as bm
@@ -14,6 +15,19 @@ RISK_PREFIX = "__RISK__"
 
 # 实时轮询诊断：debug_key -> 最近一次轮询状态快照（供 /api/debug/dom 查看）
 WAIT_DEBUG: dict = {}
+
+# 平台把列表符号渲染成独立块时，inner_text 会得到 "•\n正文"；合并回 "• 正文"
+_BULLET_ONLY_LINE = re.compile(r"(?m)^[ \t]*([•·▪◦‣])[ \t]*\n[ \t]*(?=\S)")
+
+
+def normalize_block_text(t: str) -> str:
+    """规整从 DOM 取到的回复文本：统一换行、合并孤立列表符号。"""
+    if not t:
+        return t
+    t = t.replace("\r\n", "\n").replace("\r", "\n")
+    t = _BULLET_ONLY_LINE.sub(r"\1 ", t)
+    return t.strip()
+
 
 
 async def pick_visible(page, selectors):
@@ -158,21 +172,80 @@ async def snapshot_block_counts(page, block_selectors) -> dict:
     return counts
 
 
+async def snapshot_block_texts(page, block_selectors) -> list:
+    """发送前的回复块文本快照，用于识别"新回复"。
+
+    现代平台（豆包等）的消息列表是虚拟列表：新回复挂载时可能同时卸载旧节点，
+    块计数不会增长，因此不能只靠 count 判断，必须比对文本集合。
+    """
+    texts = []
+    for sel in block_selectors:
+        try:
+            texts.extend(await page.locator(sel).all_inner_texts())
+        except Exception:
+            continue
+    return [normalize_block_text(t) for t in texts if t and t.strip()]
+
+
+async def scroll_reply_area(page):
+    """把消息列表滚到底部。
+
+    虚拟列表只挂载视口附近的节点：页面没停在底部时，新回复可能压根不进 DOM，
+    轮询就会一直看不到。这里兼容各平台常见的滚动容器写法。
+    """
+    try:
+        await page.evaluate(
+            """() => {
+                const seeds = ["[data-testid='message-list']",
+                               "[data-testid='message-list-container']",
+                               "[class*='message-list']", "[class*='chat-list']"];
+                let el = null;
+                for (const s of seeds) {
+                    el = document.querySelector(s);
+                    if (el) break;
+                }
+                if (!el) el = document.scrollingElement || document.body;
+                let node = el;
+                while (node && node !== document.body) {
+                    const st = getComputedStyle(node);
+                    if (/(auto|scroll)/.test(st.overflowY)
+                        && node.scrollHeight > node.clientHeight + 4) {
+                        node.scrollTop = node.scrollHeight;
+                        return;
+                    }
+                    node = node.parentElement;
+                }
+                if (el.scrollHeight !== undefined) el.scrollTop = el.scrollHeight;
+                window.scrollTo(0, document.body.scrollHeight);
+            }""")
+    except Exception:
+        pass
+
+
 async def wait_reply(page, block_selectors, prev_counts: dict, on_delta, *,
                      start_timeout: float = 40, done_timeout: float = 300,
-                     stable_secs: float = 2.5, risk_fn=None, debug_key: str | None = None):
+                     stable_secs: float = 2.5, risk_fn=None, debug_key: str | None = None,
+                     prev_texts: list | None = None):
     """轮询新增回复块：哪个选择器先出现新块就锁定它；文本 stable_secs 无变化视为完成。
+
+    新块判定 = 块计数增长 或 出现发送前快照里没有的文本。
+    后者用于虚拟列表平台（豆包等）：新回复挂载时旧节点会被卸载，计数可能不增。
 
     返回：回复文本 | None（超时）| "__RISK__<原因>"（熔断）。
     """
     t0 = time.monotonic()
     last, stable_since, last_src = "", None, None
+    prev_set = {t.strip() for t in (prev_texts or []) if t and t.strip()}
     dbg = WAIT_DEBUG.setdefault(debug_key or "?", {})
+    last_scroll = 0.0
     while True:
         now = time.monotonic()
         elapsed = now - t0
         if elapsed > done_timeout:
             return last or None
+        if now - last_scroll >= 3.0:  # 周期性滚到底，保证虚拟列表挂载最新回复
+            last_scroll = now
+            await scroll_reply_area(page)
         if debug_key:
             try:
                 live = {s: await page.locator(s).count() for s in block_selectors}
@@ -186,16 +259,29 @@ async def wait_reply(page, block_selectors, prev_counts: dict, on_delta, *,
         # 非首选来源需稳定 30 秒才采信（等精确节点出现），首选来源按 stable_secs 稳定即完成
         for idx, sel in enumerate(block_selectors):
             try:
-                count = await page.locator(sel).count()
+                loc = page.locator(sel)
+                count = await loc.count()
             except Exception:
                 continue
-            if count <= prev_counts.get(sel, 0):
+            if count == 0:
+                continue
+            try:
+                texts = [normalize_block_text(x)
+                         for x in await loc.all_inner_texts()]
+            except Exception:
+                texts = []
+            t = None
+            if count > prev_counts.get(sel, 0):
+                t = texts[-1] if texts else last
+            if not t:
+                # 计数没涨（虚拟列表卸载了旧节点）：找快照里没有的最新文本
+                for cand in reversed(texts):
+                    if cand and cand.strip() and cand.strip() not in prev_set:
+                        t = cand
+                        break
+            if not t:
                 continue
             progressed = True
-            try:
-                t = await page.locator(sel).nth(count - 1).inner_text()
-            except Exception:
-                t = last
             need_stable = stable_secs if idx == 0 else 30.0
             if t and t != last:
                 last = t

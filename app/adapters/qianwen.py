@@ -65,8 +65,10 @@ class QianwenAdapter(BaseAdapter):
 
         try:
             prev_counts = await common.snapshot_block_counts(page, BLOCK_SELECTORS)
+            prev_texts = await common.snapshot_block_texts(page, BLOCK_SELECTORS)
         except Exception:
             prev_counts = {sel: 0 for sel in BLOCK_SELECTORS}
+            prev_texts = []
         pre_url = page.url
 
         try:
@@ -88,6 +90,7 @@ class QianwenAdapter(BaseAdapter):
         await asyncio.sleep(1)  # 等 UI 开始渲染再进入轮询
         result = await common.wait_reply(page, BLOCK_SELECTORS, prev_counts,
                                          on_delta, start_timeout=90, done_timeout=360,
+                                         prev_texts=prev_texts,
                                          risk_fn=self._risk_detected,
                                          debug_key=self.platform_name)
         if result is None:

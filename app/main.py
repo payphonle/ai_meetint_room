@@ -44,8 +44,11 @@ logging.getLogger().addHandler(_fh)
 logging.getLogger().setLevel(logging.INFO)
 logger = logging.getLogger("app")
 
-MEMBERS = [m["name"] for m in CONFIG["members"]]
-MEMBER_MAP = {m["name"]: m for m in CONFIG["members"]}
+# members 里 enabled:false 的助手视为停用：不注册适配器、不进列表、不可发送
+ALL_MEMBERS = CONFIG["members"]
+MEMBERS = [m["name"] for m in ALL_MEMBERS if m.get("enabled", True)]
+MEMBER_MAP = {m["name"]: m for m in ALL_MEMBERS}
+DISABLED_MEMBERS = {m["name"] for m in ALL_MEMBERS if not m.get("enabled", True)}
 SCH = CONFIG.get("scheduler", {})
 ECHO_MODE = SCH.get("echo_mode", True)
 REAL_PLATFORMS = set(SCH.get("real_platforms", ["DeepSeek"]))
@@ -87,7 +90,9 @@ def on_platform_info(platform: str, text: str):
 # 各平台节奏参数：真实平台用成员配置，回声平台用 echo 配置；daily_cap 始终取成员配置
 echo_cfg = SCH.get("echo", {})
 platform_cfg = {}
-for m in CONFIG["members"]:
+for m in ALL_MEMBERS:
+    if m["name"] in DISABLED_MEMBERS:
+        continue
     use_real = (not ECHO_MODE) and m["name"] in REAL_PLATFORMS
     d = m if use_real else echo_cfg
     platform_cfg[m["name"]] = {
@@ -177,7 +182,8 @@ async def _enqueue_user_message(msg_id: int, text: str, quote_msg_id: int | None
 
 @app.get("/api/state")
 async def state():
-    return {"members": CONFIG["members"], "echo_mode": ECHO_MODE,
+    return {"members": [m for m in ALL_MEMBERS if m["name"] not in DISABLED_MEMBERS],
+            "echo_mode": ECHO_MODE,
             "real_platforms": sorted(REAL_PLATFORMS)}
 
 
@@ -212,6 +218,9 @@ async def send(body: SendBody):
         return JSONResponse({"error": "消息不能为空"}, status_code=400)
 
     if body.conv_type == "private":
+        if body.platform in DISABLED_MEMBERS:
+            return JSONResponse({"error": f"{body.platform} 已停用，如需恢复请在 config.yaml 里把 enabled 改回 true"},
+                                status_code=400)
         if body.platform not in MEMBERS:
             return JSONResponse({"error": "未知助手"}, status_code=400)
         msg_id = await storage.add_message("private", body.platform, "user", "me",
@@ -221,6 +230,13 @@ async def send(body: SendBody):
         await _enqueue_user_message(msg_id, text, body.quote_msg_id,
                                     "private", [body.platform], platform=body.platform)
         return {"ok": True, "targets": [body.platform]}
+
+    # 停用的助手不参与投递；命中 @停用助手 时明确拒绝，避免退化成群发全体
+    hit_disabled = [d for d in DISABLED_MEMBERS if f"@{d}" in text]
+    if hit_disabled:
+        return JSONResponse(
+            {"error": f"{'、'.join(hit_disabled)} 已停用，消息未发送"},
+            status_code=400)
 
     targets, mentioned_all = parse_mentions(text, MEMBERS)
     msg_id = await storage.add_message("group", None, "user", "me", text,
@@ -286,7 +302,8 @@ async def get_settings():
     return {"quiet_hours": SCH.get("quiet_hours"),
             "members": [{"name": m["name"], "risk": m["risk"],
                          "min_delay": m["min_delay"], "max_delay": m["max_delay"],
-                         "daily_cap": m["daily_cap"]} for m in CONFIG["members"]]}
+                         "daily_cap": m["daily_cap"]} for m in ALL_MEMBERS
+                        if m["name"] not in DISABLED_MEMBERS]}
 
 
 @app.post("/api/settings")

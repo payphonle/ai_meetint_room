@@ -9,7 +9,9 @@
 - **群聊 / 私聊 / 助手视角**：@ 路由到指定助手；私聊独立会话；"群聊记录"视图筛选出某助手收到的问题与它的全部回复
 - **引用转发**：引用 A 的回答发给 @B，让 B 看到前者的答案（截断 500 字，模拟人复制粘贴）
 - **取消 / 重发**：排队中、输入中均可取消（发送前拦截并清空草稿，零平台流量）；失败一键重发
-- **Markdown 渲染**（marked + DOMPurify 消毒，本地 vendor，离线可用）
+- **Markdown 渲染**（marked + DOMPurify 消毒，本地 vendor，离线可用）；`breaks: true` 保留平台原始换行，元宝这类"单换行分段"的回答不再糊成一段，列表符号自动合并
+- **长文本折叠（仅手机端）**：超过 260 字的消息默认限高 300px + 底部渐隐，「展开全文 / 收起」手动切换；桌面端始终完整显示
+- **助手启停**：`config.yaml` 里给成员加 `enabled: false` 即可停用——不启动该平台浏览器、不进成员/状态列表、@ 它会明确报错；改回 `true` 重启即恢复
 - **导出**：当前视图（群聊 / 私聊 / 助手视角）一键导出 Markdown
 - **防风控中心**：侧栏实时显示各平台排队数、今日用量、熔断状态；本地全量保存聊天历史，查看历史零网络请求
 - **设置页**：各平台间隔 / 日限额、安静时段可视化调整，保存即时生效
@@ -38,7 +40,8 @@ python -m venv .venv
 pip install -r requirements.txt
 
 # 4. 启动
-.\start.bat
+.\start-local.bat        # 优先用 .venv 里的 Python（推荐）
+# 或：.\start.bat         # 直接用系统 Python
 # 或：python -m app.main
 # 或：python -m uvicorn app.main:app --host 127.0.0.1 --port 8787
 ```
@@ -55,6 +58,7 @@ pip install -r requirements.txt
 2. 群里发 `@DeepSeek 你好` → 自动弹出真实 Edge 窗口打开对应平台 → **首次需在该窗口手动登录**
    （5 分钟内完成，登录态持久化到 `data/profiles/<平台>/`，之后免登录）
 3. 建议按 风控强度从低到高 逐家实测：DeepSeek / 智谱清言 → 千问 → 豆包 / 元宝（严格档：间隔 90~300 秒、日限 20 条）
+   （千问在 `config.yaml` 里默认 `enabled: false` 停用，要用就把该行改成 `true` 再重启）
 
 ## 手机访问（推荐 Tailscale）
 
@@ -92,9 +96,10 @@ ai_meetint_room/
       echo.py          回声假助手（echo_mode=true 时使用）
   web/                 前端（原生 HTML/CSS/JS，无构建步骤；vendor 内置 marked/DOMPurify；logos 各平台图标）
   scripts/             运维小工具（平台状态、探针、端到端诊断、logo 更新、卡死消息清理）
-  config.yaml          全部可调参数（平台节奏 / 限额 / 安静时段 / 绑定地址）
+  config.yaml          全部可调参数（平台节奏 / 限额 / 安静时段 / 绑定地址 / 助手启停）
   data/                运行时数据（gitignore）：chat.db、profiles/ 登录态、logs/、debug/
-  start.bat            Windows 一键启动
+  start.bat            Windows 一键启动（系统 Python）
+  start-local.bat      Windows 一键启动（优先 .venv，推荐）
 ```
 
 ## 常见问题
@@ -102,6 +107,7 @@ ai_meetint_room/
 - **某平台熔断（侧栏标红）**：多为登录过期、页面改版、风控提示。人工在浏览器窗口处理后，
   侧栏点击该助手即可恢复；若反复出现，用诊断接口排查：
   `GET /api/debug/dom/<平台>?probe=1`（输出页面元素 / 截图 / 轮询数据 / 回复块探针）
+- **平台明明回答了，聊天室却显示「等待回复超时」**：豆包等平台的消息列表是虚拟列表，新回复挂载时旧节点会被卸载，块数量不增长。适配器现在用「发送前文本快照 + 轮询期间每 3 秒滚到底部」判定新回复，不再只看块数量；若仍复现，用 `GET /api/debug/dom/<平台>?probe=1` 查看 `wait_debug` 里的 `counts` 与 `last_len`
 - **选择器过时**：平台改版后更新 `app/adapters/<平台>.py` 顶部的选择器常量即可，适配器会熔断自保而非盲目重试
 - **日志与排查**：`data/logs/app.log`；`scripts/check_platforms.py` 查看各平台状态；
   `scripts/probe_blocks.py 豆包` 检查回复块提取内容

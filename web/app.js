@@ -82,18 +82,61 @@ function makeAvatar(name, charOverride) {
 }
 
 /* ---------- Markdown 渲染（仅助手消息，经 DOMPurify 消毒） ---------- */
+const COLLAPSE_MIN_CHARS = 260;  // 手机端超过该长度默认折叠
+const expandedMsgIds = new Set();  // 流式更新会重渲染，记住用户展开过的消息
+
+function isMobileView() {
+  return window.matchMedia("(max-width: 768px)").matches;
+}
+
+/* 规整历史数据：元宝等平台会把列表符号拆成独立行（"•\n正文"） */
+function normalizeText(t) {
+  return (t || "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/^[ \t]*([•·▪◦‣])[ \t]*\n[ \t]*(?=\S)/gm, "$1 ");
+}
+
+/* 手机端长文本默认折叠，可手动展开/收起；桌面端始终完整显示 */
+function maybeCollapse(node, text, id) {
+  if (!text || text.length < COLLAPSE_MIN_CHARS || !isMobileView()) return node;
+  const wrap = document.createElement("div");
+  const expanded = id !== undefined && expandedMsgIds.has(id);
+  wrap.className = expanded ? "collapsible" : "collapsible collapsed";
+  const inner = document.createElement("div");
+  inner.className = "collapsible-inner";
+  inner.appendChild(node);
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "collapse-toggle";
+  btn.textContent = expanded ? "收起" : "展开全文";
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const collapsed = wrap.classList.toggle("collapsed");
+    if (id !== undefined) {
+      if (collapsed) expandedMsgIds.delete(id);
+      else expandedMsgIds.add(id);
+    }
+    btn.textContent = collapsed ? "展开全文" : "收起";
+  });
+  wrap.appendChild(inner);
+  wrap.appendChild(btn);
+  return wrap;
+}
+
 function renderContent(m) {
-  const c = m.content || "";
+  const c = normalizeText(m.content);
   if (!c) return document.createTextNode("…");
   if (m.role === "assistant" && window.marked && window.DOMPurify) {
     const div = document.createElement("div");
     div.className = "md";
     try {
-      div.innerHTML = DOMPurify.sanitize(marked.parse(c));
-      return div;
+      // breaks:true 保留单换行（元宝等平台段落之间只有一个 \n）
+      div.innerHTML = DOMPurify.sanitize(
+        marked.parse(c, { gfm: true, breaks: true }));
+      return maybeCollapse(div, c, m.id);
     } catch { /* 渲染失败退回纯文本 */ }
   }
-  return document.createTextNode(c);
+  return maybeCollapse(document.createTextNode(c), c, m.id);
 }
 
 /* ---------- 侧栏 ---------- */

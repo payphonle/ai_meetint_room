@@ -228,6 +228,10 @@ body {
 .md a { color: #1e80ff; }
 .md h1, .md h2, .md h3, .md h4 { margin: 8px 0 4px; font-size: 14px; }
 
+/* 长文本折叠（仅手机端生效，桌面端不折叠） */
+.collapsible-inner { position: relative; }
+.collapse-toggle { display: none; }
+
 /* 引用预览 */
 .quote-prev {
   font-size: 12px;
@@ -480,6 +484,31 @@ body {
 
   #messages { padding: 14px 12px; min-height: 0; }
   .msg .body { max-width: 86%; }
+
+  /* 长文本默认折叠：限高 + 底部渐隐，点「展开全文」看全部 */
+  .collapsible.collapsed .collapsible-inner { max-height: 300px; overflow: hidden; }
+  .collapsible.collapsed .collapsible-inner::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 72px;
+    background: linear-gradient(to bottom, rgba(255,255,255,0), #fff);
+    pointer-events: none;
+  }
+  .msg.user .collapsible.collapsed .collapsible-inner::after {
+    background: linear-gradient(to bottom, rgba(149,236,105,0), #95ec69);
+  }
+  .collapse-toggle {
+    display: block;
+    margin: 6px 0 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: #1e80ff;
+    font-size: 12px;
+    line-height: 18px;
+    cursor: pointer;
+  }
   #composer {
     padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
     gap: 8px;
